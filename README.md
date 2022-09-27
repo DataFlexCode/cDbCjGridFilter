@@ -12,7 +12,7 @@ It assumes that those table values will be in buffer during the Find process,
 so if you are populating some buffer in OnPostFind for the main table, or
 something like that, it probably won't work on that.
  
-Usage: Use it just as you would a cDbCJgrid.  The Grid itself will be
+Usage: Use it just as you would a cDbCJGrid.  The Grid itself will be
 positioned 15 pixels lower and be 15 pixels shorter than will be
 visible in the Studio designer to make room for two combo forms,
 one form and one button in a row above it.
