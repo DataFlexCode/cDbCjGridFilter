@@ -29,7 +29,7 @@ to filter on.
 The second combo will show the filter modes: equals, starts with, 
 contains, greater than and less than.  (In my view that's all the
 user will need, but if you feel defferently then the code is all here
-for you to tweak to your heart's content! <g>)
+for you to tweak to your heart's content!)
 
 The form will allow the entry of a value to compare selected column
 to.
@@ -49,7 +49,7 @@ The property pbFilterOnValueChange (true by default) will determine
 whether the list is filtered on each character entered in the value
 form (more intuitive for the user, seeing the list change as they
 type), or only when the form is exited (much more efficient and
-faster).  Ye pays yer money and ye takes yer choice! <g>
+faster).  Ye pays yer money and ye takes yer choice!
 
 The two properties piFilterColWidth and piFilterValWidth (both default
 to 80) can be used adjust the width of those two controls, as
