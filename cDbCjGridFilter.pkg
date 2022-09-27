@@ -1,0 +1,451 @@
+﻿//==============================================================================
+// Class package: cDbCjGridFilter.pkg, including classes cDbCjGridFilter itself,
+//                cFilterCombo, cFilterForm and cFilterButton.
+//
+// Provides a mechanism for a cDbCJGrid to be filtered on any database column
+// present in the grid (apart from Text, Binary or Overlap columns).  It will
+// skip columns such as Row Indicators or calculated columns.    It will also
+// skip any columns that do not have their psCaption set, as that is what it
+// fills the "Filter On" combo with.  In fact it will only pay attention to
+// columns of the class cDbCJGridColumn
+//
+// It assumes that those table values will be in buffer during the Find process,
+// so if you are populating some buffer in OnPostFind for the main table, or
+// something like that, it probably won't work on that.
+// 
+// Usage: Use it just as you would a cDbCJgrid.  The Grid itself will be
+//        positioned 15 pixels lower and be 15 pixels shorter than will be
+//        visible in the Studio designer to make room for two combo forms,
+//        one form and one button in a row above it.
+//
+//        Then in the Server DataDictionary object for the grid, add into its 
+//        Procedure OnConstrain (creating that if there isn't alreadty one) the
+//        line:
+//
+//            Constrain {yourTable} as (MeetsFilter({gridObjectName(Self)))
+//
+//        The first combo form will list the available columns from the grid
+//        to filter on.
+//
+//        The second combo will show the filter modes: equals, starts with, 
+//        contains, greater than and less than.  (In my view that's all the
+//        user will want, but if you feel defferently then the code is all here
+//        for you to tweak to your heart's content! <g>)
+//
+//        The form will allow the entry of a value to compare rows to.
+//
+//        No filtering will occur until all three contain non-blank values.
+//
+//        The button simply clears the other three, returning the grid to an
+//        unfiltered state.
+//
+//        Only four new properties are exposed in the Studio, as follows.
+//
+//        The pbCaseInsensitive property (true by default) determines whether
+//        comparisons will be case sensitive (therefor not, by default).
+//
+//        The property pbFilterOnValueChange (true by default) will determine
+//        whether the list is filtered on each character entered in the value
+//        form (more intuative for the user, seeing the list change as they
+//        type), or only when the form is exited (much more efficient and
+//        faster).  Ye pays yer money and ye takes yer choice! <g>
+//
+//        The two properties piFilterColWidth and piFilterValWidth (both default
+//        to 80) can be used adjust the width of those two controls, as
+//        required.
+//
+// The filtering is done totally in DataFlex code, so doesn't care about your
+// database back-end.  As far as I can tell it is compatible with other
+// constraints and using SQL filters, although I have not tested that aspect
+// extensively.
+//
+// Author: Mike, Peat, Unicorn InterGlobal
+//
+// Licence:
+//    Copyright 2022, Mike Peat, Unicorn InterGlobal
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
+//------------------------------------------------------------------------------
+// Version 1.0   MJP, UIG   2022-09-26  Initial version
+//==============================================================================
+
+Use Windows.pkg
+Use cDbCJGrid.pkg
+Use cDbCJGridColumn.pkg
+Use cDbCJGridColumnSuggestion.pkg
+
+Register_Procedure ClearFilter
+Register_Procedure FilterChange
+Register_Function pbFilterOnValueChange Returns Boolean
+
+{ Visibility=Private }
+Class cFilterCombo is a ComboForm
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Property Handle phoGrid
+
+        Set Label_Justification_Mode to JMode_Right
+        Set Label_Col_Offset to 5
+        Set Combo_Sort_State to False
+        Set Entry_State to False
+    End_Procedure
+
+    Procedure OnChange
+        Send FilterChange of (phoGrid(Self))
+    End_Procedure
+      
+End_Class
+
+{ Visibility=Private }
+Class cFilterForm is a Form
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Property Handle phoGrid
+
+        Set Label_Justification_Mode to JMode_Right
+        Set Label_Col_Offset to 5
+    End_Procedure
+    
+    Procedure OnChange
+        Boolean bOnChange
+        
+        If (pbFilterOnValueChange(phoGrid(Self))) ;
+            Send FilterChange of (phoGrid(Self))
+    End_Procedure
+    
+    Procedure OnKillFocus
+        If not (pbFilterOnValueChange(phoGrid(Self))) ;
+            Send FilterChange of (phoGrid(Self))
+    End_Procedure
+
+End_Class
+
+{ Visibility=Private }
+Class cFilterButton is a Button
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Property Handle phoGrid
+    End_Procedure
+    
+    Procedure OnClick
+        Send ClearFilter of (phoGrid(Self))
+    End_Procedure
+    
+End_Class
+
+Class cDbCjGridFilter is a cDbCJGrid
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+                
+        { Visibility=Private }
+        Property Handle     phoFilterCol
+        { Visibility=Private }
+        Property Handle     phoFilterMode
+        { Visibility=Private }
+        Property Handle     phoFilterValue        
+        { Visibility=Private }
+        Property String[]   pasColNames
+        { Visibility=Private }
+        Property Integer[]  paiTables
+        { Visibility=Private }
+        Property Integer[]  paiFields
+        { Visibility=Private }
+        Property Integer[]  paiTypes
+        
+        // Determines if comparisons betwen the filter value and the table data
+        // will be case sensitive.
+        { Category=Behavior }
+        Property Boolean    pbCaseInsensitive True
+        // Determines if the list will be filtered by every key-stroke in the
+        // "value" form, or only when the form is exited.
+        { Category=Behavior }
+        Property Boolean    pbFilterOnValueChange True
+        { Category=Appearance }
+        Property Integer    piFilterColWidth 80
+        { Category=Appearance }
+        Property Integer    piFilterValWidth 80
+    End_Procedure
+    
+    Procedure FilterChange
+        Send Clear_All of (Server(Self))
+        Send Find of (Server(Self)) FIRST_RECORD (Ordering(Self))
+    End_Procedure
+    
+    Procedure End_Construct_Object
+        Integer   iXLoc iYLoc iXSize iYSize iCols iCol iColWidth iValWidth
+        Handle    hoParent hoCol hoFilterColumn hoFilterMode hoFilterValue hoFilterBtn
+        String    sCaption
+        String[]  asColNames
+        Integer[] aiTables aiFields aiTypes
+        
+        Move (Hi(Location(Self)))  to iXLoc
+        Move (Low(Location(Self))) to iYLoc
+        
+        Move (Hi(Size(Self)))  to iXSize
+        Move (Low(Size(Self))) to iYSize
+        
+        Get piFilterColWidth to iColWidth
+        Get piFilterValWidth to iValWidth        
+        
+        Get Parent to hoParent  // We will create the filter controls on the parent object
+        
+        Get CreateNamed of hoParent (RefClass(cFilterCombo)) "oFilterColumn" to hoFilterColumn
+        Set phoFilterCol to hoFilterColumn
+        Set phoGrid  of hoFilterColumn  to Self
+        Set Location of hoFilterColumn  to iXLoc (iYLoc + 35)
+        Set Size     of hoFilterColumn  to 12 iColWidth
+        Set Label    of hoFilterColumn  to "Filter on:"
+        Set psToolTip of hoFilterColumn to "Column to filter on"
+        
+        Send Combo_Add_Item of hoFilterColumn ""  // Add a blank to the start of the combo list
+
+        Get ColumnCount to iCols
+        
+        For iCol from 0 to (iCols - 1)
+            Get ColumnObject iCol to hoCol
+            If not (IsObjectOfClass(hoCol, RefClass(cDbCJGridColumn)) or ;
+                    IsObjectOfClass(hoCol, RefClass(cDbCJGridColumnSuggestion))) ;
+                Break Begin  // Skip anything not an actual data column (so row indicators, etc.)
+            If not (piBindingTable(hoCol)) ;
+                Break Begin  // Skip if no table
+            If not (piBindingColumn(hoCol)) ;
+                Break Begin  // Skip if no column
+            If (psCaption(hoCol) = "") ;
+                Break Begin  // Skip if no caption
+            Get psCaption       of hoCol to asColNames[iCol]
+            Send Combo_Add_Item of hoFilterColumn asColNames[iCol]
+            Get piBindingTable  of hoCol to aiTables[iCol]
+            Get piBindingColumn of hoCol to aiFields[iCol]
+            Get_Attribute DF_FIELD_TYPE of aiTables[iCol] aiFields[iCol] to aiTypes[iCol]
+        Loop
+        
+        Set pasColNames to asColNames
+        Set paiTables   to aiTables
+        Set paiFields   to aiFields
+        Set paiTypes    to aiTypes
+        
+        Get CreateNamed of hoParent (RefClass(cFilterCombo)) "oFilterMode" to hoFilterMode
+        Set phoFilterMode to hoFilterMode
+        Set phoGrid of hoFilterMode to Self
+        Set Location of hoFilterMode to iXLoc (iYLoc + iColWidth + 38)
+        Set Size of hoFilterMode to 12 56
+        Set psToolTip of hoFilterMode to "Mode to filter by"
+        
+        Send Combo_Add_Item of hoFilterMode ""
+        Send Combo_Add_Item of hoFilterMode "equals"
+        Send Combo_Add_Item of hoFilterMode "starts with"
+        Send Combo_Add_Item of hoFilterMode "contains"
+        Send Combo_Add_Item of hoFilterMode "greater than"
+        Send Combo_Add_Item of hoFilterMode "less than"
+        
+        Get CreateNamed of hoParent (RefClass(cFilterForm)) "oFilterValue" to hoFilterValue
+        Set phoFilterValue to hoFilterValue
+        Set phoGrid of hoFilterValue to Self
+        Set Location of hoFilterValue to iXLoc (iYLoc + iColWidth + 97)
+        Set Size of hoFilterValue to 12 iValWidth
+        Set psToolTip of hoFilterValue to "Value to filter for"
+        
+        Get CreateNamed of hoParent (RefClass(cFilterButton)) "oClearFilterBtn" to hoFilterBtn
+        Set Location of hoFilterBtn to iXLoc (iYLoc + iColWidth + iValWidth + 100)
+        Set phoGrid of hoFilterBtn to Self
+        Set Size of hoFilterBtn to 12 50
+        Set Label of hoFilterBtn to "Clear Filter"
+        
+        Set Location to (iXLoc + 15) iYLoc
+        Set Size to (iXSize - 15) iYSize
+
+        Forward Send End_Construct_Object
+    End_Procedure
+
+    Procedure ClearFilter
+        Set Value of (phoFilterCol(Self))   to ""
+        Set Value of (phoFilterMode(Self))  to ""
+        Set Value of (phoFilterValue(Self)) to ""
+    End_Procedure
+
+    Function MeetsFilter Returns Boolean
+        Handle    hCol hMode hVal
+        String    sCol sMode sVal sCompVal
+        Boolean   bCI
+        Integer   iCol iTab iFld iType
+        String[]  asCols
+        Integer[] aiTabs aiFlds aiTypes
+        Number    nVal nCompVal
+        Date      dVal dCompVal
+        DateTime  dtVal dtCompVal
+        
+        Get phoFilterCol    to hCol
+        Get phoFilterMode   to hMode
+        Get phoFilterValue  to hVal
+        
+        Get Value of hCol   to sCol
+        Get Value of hMode  to sMode
+        Get Value of hVal   to sVal
+        
+        // If one of the three is not populated then always return true
+        If ((sCol = "") or (sMode = "") or (sVal = "")) ;
+            Function_Return True
+        
+        Get pasColNames         to asCols
+        Get paiTables           to aiTabs
+        Get paiFields           to aiFlds
+        Get paiTypes            to aiTypes
+        Get pbCaseInsensitive   to bCI
+        
+        Move (SearchArray(sCol, asCols)) to iCol
+        
+        If (iCol = -1) ; // Huh?
+            Function_Return True
+        
+        Move aiTabs[iCol]  to iTab
+        Move aiFlds[iCol]  to iFld
+        Move aiTypes[iCol] to iType
+        
+        // If column Overlap, Text or Binary, just return true (i.e. ignore)
+        If ((iType = DF_OVERLAP) or (iType = DF_TEXT) or (iType = DF_BINARY)) ;
+            Function_Return True
+        
+        Move (Lowercase(sMode)) to sMode  // Will be anyway, but just in case! <g>
+        Move False to Err
+        
+        If (iType = DF_ASCII) Begin
+            Get_Field_Value iTab iFld to sCompVal
+            Move (Trim(sVal))         to sVal
+            Move (Trim(sCompVal))     to sCompVal
+            
+            If bCI Begin
+                Move (Uppercase(sVal))      to sVal
+                Move (Uppercase(sCompVal))  to sCompVal
+            End
+                    
+            Case Begin
+                
+                Case (sMode = "equals")
+                    Function_Return (sCompVal = sVal)
+                    Case Break
+                
+                Case (sMode = "starts with")
+                    Function_Return (Left(sCompVal, Length(sVal)) = sVal)
+                    Case Break
+                
+                Case (sMode = "contains")
+                    Function_Return (sCompVal contains sVal)
+                    Case Break
+                
+                Case (sMode = "greater than")
+                    Function_Return (sCompVal > sVal)
+                    Case Break
+                
+                Case (sMode = "less than")
+                    Function_Return (sCompVal < sVal)
+                    Case Break
+                
+            Case End
+        
+        End
+        Else If (iType = DF_BCD) Begin
+            Get_Field_Value iTab iFld to nCompVal
+            Send Ignore_Error of Error_Object_Id 54
+            Move sVal to nVal
+            Send Trap_Error of Error_Object_Id 54
+            If (Err) ;
+                Function_Return False
+
+            Case Begin
+            
+                Case (sMode = "equals")
+                    Function_Return (nCompVal = nVal)
+                    Case Break
+                
+                Case (sMode = "greater than")
+                    Function_Return (nCompVal > nVal)
+                    Case Break
+                
+                Case (sMode = "less than")
+                    Function_Return (nCompVal < nVal)
+                    Case Break
+            Case End
+            
+        End
+        Else If (iType = DF_DATE) Begin
+            Get_Field_Value iTab iFld to dCompVal
+            Send Ignore_Error of Error_Object_Id 54
+            Send Ignore_Error of Error_Object_Id 16
+            Move sVal to dVal
+            Send Trap_Error of Error_Object_Id 54
+            Send Trap_Error of Error_Object_Id 16
+            If (Err) ;
+                Function_Return False
+            
+            Case Begin
+            
+                Case (sMode = "equals")
+                    Function_Return (dCompVal = dVal)
+                    Case Break
+                
+                Case (sMode = "greater than")
+                    Function_Return (dCompVal > dVal)
+                    Case Break
+                
+                Case (sMode = "less than")
+                    Function_Return (dCompVal < dVal)
+                    Case Break
+                
+            Case End
+            
+        End
+        Else If (iType = DF_DATETIME) Begin
+            Get_Field_Value iTab iFld to dtCompVal
+            Send Ignore_Error of Error_Object_Id 54
+            Send Ignore_Error of Error_Object_Id 16
+            Move sVal to dtVal
+            Send Trap_Error of Error_Object_Id 54
+            Send Trap_Error of Error_Object_Id 16
+            If (Err) ;
+                Function_Return False
+            
+            Case Begin
+
+                Case (sMode = "equals")
+                    Function_Return (dtCompVal = dtVal)
+                    Case Break
+                
+                Case (sMode = "greater than")
+                    Function_Return (dtCompVal > dtVal)
+                    Case Break
+                
+                Case (sMode = "less than")
+                    Function_Return (dtCompVal < dtVal)
+                    Case Break
+            Case End
+            
+        End
+        
+        Function_Return True  // Shouldn't really get here! <g>
+    End_Function
+
+End_Class
