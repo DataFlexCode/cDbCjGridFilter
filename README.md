@@ -28,7 +28,7 @@ to filter on.
 
 The second combo will show the filter modes: equals, starts with, 
 contains, greater than and less than.  (In my view that's all the
-user will need, but if you feel defferently then the code is all here
+user will need, but if you feel differently then the code is all here
 for you to tweak to your heart's content!)
 
 The form will allow the entry of a value to compare selected the column
