@@ -31,7 +31,7 @@ contains, greater than and less than.  (In my view that's all the
 user will need, but if you feel defferently then the code is all here
 for you to tweak to your heart's content!)
 
-The form will allow the entry of a value to compare selected column
+The form will allow the entry of a value to compare selected the column
 to.
 
 No filtering will occur until all three contain non-blank values.
